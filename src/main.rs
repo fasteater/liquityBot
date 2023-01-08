@@ -65,7 +65,12 @@ async fn main() -> Result<()> {
 
 
     let sorted_troves_add:Address = "0x8FdD3fbFEb32b28fb73555518f8b361bCeA741A6".parse()?;
-    let sorted_troves_contract = SORTED_TROVE::new(sorted_troves_add, client).clone();
+    let sorted_troves_contract = SORTED_TROVE::new(sorted_troves_add, client.clone());
+
+    // let provider = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();
+    // let client = Arc::new(provider);
+    let chainlink_feed_add: Address = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf".parse().unwrap();
+    let chainlink_feed_registery = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client.clone());
     
     let mcr:U256 = U256::from_dec_str("1100000000000000000")?; 
 
@@ -81,7 +86,7 @@ async fn main() -> Result<()> {
         println!("========================== new block check {} ========================== ", block.number.unwrap());
         
         //2. get Eth price from chainlink, scale it up to 18 decimals (chainlink default 8 decimals 
-        let current_eth_price:U256 = get_asset_latest_usd_value_chainlink("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address
+        let current_eth_price:U256 = get_asset_latest_usd_value_chainlink(chainlink_feed_registery.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address
         // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
         println!("got eth price {}", current_eth_price);
         
@@ -199,13 +204,8 @@ async fn liquidate_troves(unhealthy_position_count:i32, trove_manager_add:&Addre
 
 }
 
-async fn get_asset_latest_usd_value_chainlink(mut asset_address:Address) -> U256{
+async fn get_asset_latest_usd_value_chainlink(chainlink_feed_registery:CHAINLINK_FEED_REGISTRY<Provider<Ws>>, mut asset_address:Address) -> U256{
    
-    let provider = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();
-    let client = Arc::new(provider);
-    let chainlink_feed_add: Address = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf".parse().unwrap();
-    let chainlink_feed_registery = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client);
-
     //adjust collateral assets if it is weth and wbtc, chainlink doesn't like these two
     if asset_address == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".parse().unwrap() {
         asset_address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap();
