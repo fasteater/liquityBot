@@ -46,78 +46,87 @@ abigen!(
 //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main(){
 
-    let provider2 = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await?; //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
+    let provider2 = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap(); //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
     let client = Arc::new(provider2);
 
-    let bot_wallet = Wallet::decrypt_keystore("./.cargo/mm3_bot_keystore.json",&env::var("BOT_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm3 - 0xedA8f1dc3Deee0Af4d98066e7F398f7151CC2812
-    dbg!(&bot_wallet);
+    let bot_wallet0 = Wallet::decrypt_keystore("./.cargo/mm3_bot_keystore.json",&env::var("BOT_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm3 - 0xedA8f1dc3Deee0Af4d98066e7F398f7151CC2812
+    dbg!(&bot_wallet0);
 
-    let flasbot_reg_wallet = Wallet::decrypt_keystore("./.cargo/flashbot_reg_keystore.186649000Z--ff584ffe16f497a8aa3ef660424e8132905e538c",&env::var("FLASHBOT_REG_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm12
-    dbg!(&flasbot_reg_wallet);
+    let flasbot_reg_wallet0 = Wallet::decrypt_keystore("./.cargo/flashbot_reg_keystore.186649000Z--ff584ffe16f497a8aa3ef660424e8132905e538c",&env::var("FLASHBOT_REG_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm12
+    dbg!(&flasbot_reg_wallet0);
     
-    let trove_manager_add: Address = "0xA39739EF8b0231DbFA0DcdA07d7e29faAbCf4bb2".parse()?;
-    let trove_manager_contract = TROVE_MANAGER::new(trove_manager_add, client.clone());
+    let trove_manager_add: Address = "0xA39739EF8b0231DbFA0DcdA07d7e29faAbCf4bb2".parse().unwrap();
+    let trove_manager_contract0 = TROVE_MANAGER::new(trove_manager_add, client.clone());
     
     //   //dev test
     //   liquidate_troves(2, &trove_manager_add, bot_wallet.clone(), flasbot_reg_wallet.clone(), &U256::from_dec_str("1200000000000000000000").unwrap()).await;
 
 
-    let sorted_troves_add:Address = "0x8FdD3fbFEb32b28fb73555518f8b361bCeA741A6".parse()?;
-    let sorted_troves_contract = SORTED_TROVE::new(sorted_troves_add, client.clone());
+    let sorted_troves_add:Address = "0x8FdD3fbFEb32b28fb73555518f8b361bCeA741A6".parse().unwrap();
+    let sorted_troves_contract0 = SORTED_TROVE::new(sorted_troves_add, client.clone());
 
     // let provider = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();
     // let client = Arc::new(provider);
     let chainlink_feed_add: Address = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf".parse().unwrap();
-    let chainlink_feed_registery = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client.clone());
+    let chainlink_feed_registery0 = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client.clone());
     
-    let mcr:U256 = U256::from_dec_str("1100000000000000000")?; 
+    let mcr:U256 = U256::from_dec_str("1100000000000000000").unwrap(); 
 
     
     //1. listen to new blocks
-    let ws = Ws::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await?;
-    let provider = Provider::new(ws).interval(Duration::from_millis(1000));
-    let mut stream = provider.watch_blocks().await?;
+    let ws = Ws::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();
+    let provider0 = Provider::new(ws).interval(Duration::from_millis(1000));
+    let mut stream = provider0.watch_blocks().await.unwrap();
 
-    while let Some(block) = stream.next().await {   //TODO - spawn each block action into own thread, so it wont panic the main thread if anything goes wrong
+    while let Some(block) = stream.next().await {
         
-        let block = provider.get_block(block).await?.unwrap();
-        println!("========================== new block check {} ========================== ", block.number.unwrap());
-        
-        //2. get Eth price from chainlink, scale it up to 18 decimals (chainlink default 8 decimals 
-        let current_eth_price:U256 = get_asset_latest_usd_value_chainlink(chainlink_feed_registery.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address
-        // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
-        println!("got eth price {}", current_eth_price);
-        
-        //3. get the tail addresses from sortedTroves.sol and check health, if found any unhealthy, check prev positions also, till we hit a healthy position
-        let mut tail_user:Address = sorted_troves_contract.get_last().call().await.unwrap();
-        let mut unhealthy_position_count = 0;
-        
-        loop {
+        let provider = provider0.clone();
+        let trove_manager_contract = trove_manager_contract0.clone();
+        let sorted_troves_contract = sorted_troves_contract0.clone();
+        let chainlink_feed_registery = chainlink_feed_registery0.clone();
+        let bot_wallet = bot_wallet0.clone();
+        let flasbot_reg_wallet = flasbot_reg_wallet0.clone();
 
-            //check health
-            let user_current_icr = trove_manager_contract.get_current_icr(tail_user, current_eth_price).call().await.unwrap();
+        let task = tokio::spawn(async move {    //TODO - deal with unwrap in here to return Ok(()) if err so we dont panic the main thread 
             
-            if user_current_icr < mcr {
-                unhealthy_position_count += 1;
-                println!("found unhealthy position {}", unhealthy_position_count);
-                tail_user = sorted_troves_contract.get_prev(tail_user).call().await.unwrap();
-            } else {
-                break;
-            }
-        };
-
-        println!("got {} unhealthy positions", unhealthy_position_count);
-        if unhealthy_position_count > 0 {
-
-            //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
-            liquidate_troves(unhealthy_position_count, &trove_manager_add, bot_wallet.clone(), flasbot_reg_wallet.clone(), &current_eth_price).await;
-        };
-       
+            let block = provider.get_block(block).await.unwrap().unwrap();
+            println!("========================== new block check {} ========================== ", block.number.unwrap());
+            
+            //2. get Eth price from chainlink, scale it up to 18 decimals (chainlink default 8 decimals 
+            let current_eth_price:U256 = get_asset_latest_usd_value_chainlink(chainlink_feed_registery.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address
+            // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
+            println!("got eth price {}", current_eth_price);
+            
+            //3. get the tail addresses from sortedTroves.sol and check health, if found any unhealthy, check prev positions also, till we hit a healthy position
+            let mut tail_user:Address = sorted_troves_contract.get_last().call().await.unwrap();
+            let mut unhealthy_position_count = 0;
+            
+            loop {
+    
+                //check health
+                let user_current_icr = trove_manager_contract.get_current_icr(tail_user, current_eth_price).call().await.unwrap();
+                
+                if user_current_icr < mcr {
+                    unhealthy_position_count += 1;
+                    println!("found unhealthy position {}", unhealthy_position_count);
+                    tail_user = sorted_troves_contract.get_prev(tail_user).call().await.unwrap();
+                } else {
+                    break;
+                }
+            };
+    
+            println!("got {} unhealthy positions", unhealthy_position_count);
+            if unhealthy_position_count > 0 {
+    
+                //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
+                liquidate_troves(unhealthy_position_count, &trove_manager_add, bot_wallet.clone(), flasbot_reg_wallet.clone(), &current_eth_price).await;
+            };           
+        });
+        
+        task.await.unwrap();        
     }
-
-    Ok(())
 }
 
 async fn liquidate_troves(unhealthy_position_count:i32, trove_manager_add:&Address, bot_wallet:Wallet<SigningKey>, flasbot_reg_wallet:Wallet<SigningKey>, current_eth_price:&U256){
