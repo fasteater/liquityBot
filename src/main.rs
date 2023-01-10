@@ -6,7 +6,6 @@ use ethers::{
     providers::{Provider, Middleware, StreamExt, Ws},
     signers::{Wallet},
 };
-use eyre::Result;
 use std::{sync::Arc, env};
 use std::time::Duration;
 use tokio;
@@ -48,29 +47,26 @@ abigen!(
 #[tokio::main]
 async fn main(){
 
-    let provider2 = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap(); //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
-    let client = Arc::new(provider2);
+    let provider = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap(); //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
+    let client = Arc::new(provider);
 
     let bot_wallet0 = Wallet::decrypt_keystore("./.cargo/mm3_bot_keystore.json",&env::var("BOT_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm3 - 0xedA8f1dc3Deee0Af4d98066e7F398f7151CC2812
     dbg!(&bot_wallet0);
 
-    let flasbot_reg_wallet0 = Wallet::decrypt_keystore("./.cargo/flashbot_reg_keystore.186649000Z--ff584ffe16f497a8aa3ef660424e8132905e538c",&env::var("FLASHBOT_REG_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm12
-    dbg!(&flasbot_reg_wallet0);
+    let flashbot_reg_wallet0 = Wallet::decrypt_keystore("./.cargo/flashbot_reg_keystore.186649000Z--ff584ffe16f497a8aa3ef660424e8132905e538c",&env::var("FLASHBOT_REG_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm12
+    dbg!(&flashbot_reg_wallet0);
     
     let trove_manager_add: Address = "0xA39739EF8b0231DbFA0DcdA07d7e29faAbCf4bb2".parse().unwrap();
     let trove_manager_contract0 = TROVE_MANAGER::new(trove_manager_add, client.clone());
     
     //   //dev test
-    //   liquidate_troves(2, &trove_manager_add, bot_wallet.clone(), flasbot_reg_wallet.clone(), &U256::from_dec_str("1200000000000000000000").unwrap()).await;
-
+    //   liquidate_troves(2, &trove_manager_add, bot_wallet.clone(), flashbot_reg_wallet.clone(), &U256::from_dec_str("1200000000000000000000").unwrap()).await;
 
     let sorted_troves_add:Address = "0x8FdD3fbFEb32b28fb73555518f8b361bCeA741A6".parse().unwrap();
     let sorted_troves_contract0 = SORTED_TROVE::new(sorted_troves_add, client.clone());
 
-    // let provider = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();
-    // let client = Arc::new(provider);
     let chainlink_feed_add: Address = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf".parse().unwrap();
-    let chainlink_feed_registery0 = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client.clone());
+    let chainlink_feed_registry0 = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client.clone());
     
     let mcr:U256 = U256::from_dec_str("1100000000000000000").unwrap(); 
 
@@ -81,21 +77,21 @@ async fn main(){
     let mut stream = provider0.watch_blocks().await.unwrap();
 
     while let Some(block) = stream.next().await {
-        
         let provider = provider0.clone();
+        let block = provider.get_block(block).await.unwrap().unwrap();
+        println!("========================== new block check {} ========================== ", block.number.unwrap());
+        
         let trove_manager_contract = trove_manager_contract0.clone();
         let sorted_troves_contract = sorted_troves_contract0.clone();
-        let chainlink_feed_registery = chainlink_feed_registery0.clone();
+        let chainlink_feed_registry = chainlink_feed_registry0.clone();
         let bot_wallet = bot_wallet0.clone();
-        let flasbot_reg_wallet = flasbot_reg_wallet0.clone();
+        let flashbot_reg_wallet = flashbot_reg_wallet0.clone();
 
-        let task = tokio::spawn(async move {    //TODO - deal with unwrap in here to return Ok(()) if err so we dont panic the main thread 
+        let task = tokio::spawn(async move {  
             
-            let block = provider.get_block(block).await.unwrap().unwrap();
-            println!("========================== new block check {} ========================== ", block.number.unwrap());
-            
+            println!("task spawned");
             //2. get Eth price from chainlink, scale it up to 18 decimals (chainlink default 8 decimals 
-            let current_eth_price:U256 = get_asset_latest_usd_value_chainlink(chainlink_feed_registery.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address
+            let current_eth_price:U256 = get_asset_latest_usd_value_chainlink(chainlink_feed_registry.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address
             // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
             println!("got eth price {}", current_eth_price);
             
@@ -121,7 +117,7 @@ async fn main(){
             if unhealthy_position_count > 0 {
     
                 //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
-                liquidate_troves(unhealthy_position_count, &trove_manager_add, bot_wallet.clone(), flasbot_reg_wallet.clone(), &current_eth_price).await;
+                liquidate_troves(unhealthy_position_count, &trove_manager_add, bot_wallet.clone(), flashbot_reg_wallet.clone(), &current_eth_price).await;
             };           
         });
         
@@ -129,14 +125,13 @@ async fn main(){
     }
 }
 
-async fn liquidate_troves(unhealthy_position_count:i32, trove_manager_add:&Address, bot_wallet:Wallet<SigningKey>, flasbot_reg_wallet:Wallet<SigningKey>, current_eth_price:&U256){
-
+async fn liquidate_troves(unhealthy_position_count:i32, trove_manager_add:&Address, bot_wallet:Wallet<SigningKey>, flashbot_reg_wallet:Wallet<SigningKey>, current_eth_price:&U256){
 
     println!("liquidate {} unhealthy positions", unhealthy_position_count);
     //send tx with flashbots
 
-    let provider2 = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();  
-    let client2 = Arc::new(provider2.clone());
+    let provider = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();  
+    let client2 = Arc::new(provider.clone());
     
 
     let trove_manager_contract = TROVE_MANAGER::new(*trove_manager_add, client2);
@@ -144,9 +139,9 @@ async fn liquidate_troves(unhealthy_position_count:i32, trove_manager_add:&Addre
     // Add signer and Flashbots middleware
     let client = SignerMiddleware::new(
         FlashbotsMiddleware::new(
-            provider2.clone(),
+            provider.clone(),
             Url::parse("https://relay.flashbots.net").unwrap(),
-            flasbot_reg_wallet,
+            flashbot_reg_wallet,
         ),
         bot_wallet.clone(),
     );
@@ -213,7 +208,7 @@ async fn liquidate_troves(unhealthy_position_count:i32, trove_manager_add:&Addre
 
 }
 
-async fn get_asset_latest_usd_value_chainlink(chainlink_feed_registery:CHAINLINK_FEED_REGISTRY<Provider<Ws>>, mut asset_address:Address) -> U256{
+async fn get_asset_latest_usd_value_chainlink(chainlink_feed_registry:CHAINLINK_FEED_REGISTRY<Provider<Ws>>, mut asset_address:Address) -> U256{
    
     //adjust collateral assets if it is weth and wbtc, chainlink doesn't like these two
     if asset_address == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".parse().unwrap() {
@@ -225,7 +220,7 @@ async fn get_asset_latest_usd_value_chainlink(chainlink_feed_registery:CHAINLINK
 
     let usd_address = "0x0000000000000000000000000000000000000348".parse().unwrap();
 
-    let asset_price_usd:(U256, U256, U256, U256, U256) = chainlink_feed_registery.latest_round_data(asset_address, usd_address).call().await.unwrap();
+    let asset_price_usd:(U256, U256, U256, U256, U256) = chainlink_feed_registry.latest_round_data(asset_address, usd_address).call().await.unwrap();
 
     asset_price_usd.1 * U256::from_dec_str("10000000000").unwrap() //chailink returns 10*8 scaled value, we want 10*18
 
