@@ -47,7 +47,7 @@ abigen!(
 #[tokio::main]
 async fn main(){
 
-    let provider = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap(); //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
+    let provider = Provider::<Ws>::connect(&env::var("END_POINT").unwrap()).await.unwrap(); //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
     let client = Arc::new(provider);
 
     let bot_wallet0 = Wallet::decrypt_keystore("./.cargo/mm3_bot_keystore.json",&env::var("BOT_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm3 - 0xedA8f1dc3Deee0Af4d98066e7F398f7151CC2812
@@ -72,7 +72,7 @@ async fn main(){
 
     
     //1. listen to new blocks
-    let ws = Ws::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();
+    let ws = Ws::connect(&env::var("END_POINT").unwrap()).await.unwrap();
     let provider0 = Provider::new(ws).interval(Duration::from_millis(1000));
     let mut stream = provider0.watch_blocks().await.unwrap();
 
@@ -130,7 +130,7 @@ async fn liquidate_troves(unhealthy_position_count:i32, trove_manager_add:&Addre
     println!("liquidate {} unhealthy positions", unhealthy_position_count);
     //send tx with flashbots
 
-    let provider = Provider::<Ws>::connect(&env::var("ALCHEMY_END_POINT").unwrap()).await.unwrap();  
+    let provider = Provider::<Ws>::connect(&env::var("END_POINT").unwrap()).await.unwrap();  
     let client2 = Arc::new(provider.clone());
     
 
