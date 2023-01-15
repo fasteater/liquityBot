@@ -80,9 +80,28 @@ async fn main(){
         Ok(mut stream) => {
             while let Some(block) = stream.next().await {
                 let provider = provider0.clone();
-                let block = provider.get_block(block).await.unwrap().unwrap();
-                println!("========================== new block check {} ========================== ", block.number.unwrap());
-                
+                let block_result= provider.get_block(block).await;
+
+                match block_result {
+                    Ok(block_option) => {
+                        match block_option {
+                            Some(block) => {
+                                println!("========================== new block check {} ========================== ", block.number.unwrap());
+                            },
+        
+                            None => {
+                                println!("didnt get any block");
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        println!("err getting block {:?}", e);
+                    }
+                }
+
+           
+
+                 
                 // let trove_manager_contract = trove_manager_contract0.clone();
                 // let sorted_troves_contract = sorted_troves_contract0.clone();
                 // let chainlink_feed_registry = chainlink_feed_registry0.clone();
