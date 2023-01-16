@@ -6,11 +6,12 @@ use ethers::{
     providers::{Provider, Middleware, StreamExt, Ws},
     signers::{Wallet},
 };
-use std::{sync::Arc, env};
+use std::{sync::Arc, env, error::Error};
 use std::time::Duration;
 use tokio;
 use ethers_flashbots::*;
 use url::Url;
+
 
 abigen!(
     TROVE_MANAGER,
@@ -45,7 +46,7 @@ abigen!(
 //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
 
 #[tokio::main]
-async fn main(){
+async fn main() -> Result<(), Box<dyn Error>>{
 
     let provider = Provider::<Ws>::connect(&env::var("END_POINT").unwrap()).await.unwrap(); //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
     let client = Arc::new(provider);
@@ -68,102 +69,79 @@ async fn main(){
     let chainlink_feed_add: Address = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf".parse().unwrap();
     let chainlink_feed_registry0 = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client.clone());
     
-    let mcr:U256 = U256::from_dec_str("1100000000000000000").unwrap(); 
+    let mcr:U256 = U256::from_dec_str("1100000000000000000")?; 
 
     
     //1. listen to new blocks
     let ws = Ws::connect(&env::var("END_POINT").unwrap()).await.unwrap();
     let provider0 = Provider::new(ws).interval(Duration::from_millis(1000));
 
-    let stream_result= provider0.watch_blocks().await;
+    let mut stream= provider0.watch_blocks().await?;
 
-    match stream_result {
-        Ok(mut stream) => {
-            while let Some(block) = stream.next().await {
-                let provider = provider0.clone();
-                let block_result= provider.get_block(block).await;
+        while let Some(block) = stream.next().await {
+            let provider = provider0.clone();
+            let block = provider.get_block(block).await?.unwrap();
 
-                match block_result {
-                    Ok(block_option) => {
-                        match block_option {
-                            Some(block) => {
-                                println!("========================== new block check {} ========================== ", block.number.unwrap());
-                                                 
-                                let trove_manager_contract = trove_manager_contract0.clone();
-                                let sorted_troves_contract = sorted_troves_contract0.clone();
-                                let chainlink_feed_registry = chainlink_feed_registry0.clone();
-                                let bot_wallet = bot_wallet0.clone();
-                                let flashbot_reg_wallet = flashbot_reg_wallet0.clone();
-                        
-                                let task = tokio::spawn(async move {  
-                                    
-                                    println!("task spawned");
-                                    //2. get Eth price from chainlink, scale it up to 18 decimals (chainlink default 8 decimals 
-                                    let current_eth_price:U256 = get_asset_latest_usd_value_chainlink(chainlink_feed_registry.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address
-                                    // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
-                                    println!("got eth price {}", current_eth_price);
-                                    
-                                    //3. get the tail addresses from sortedTroves.sol and check health, if found any unhealthy, check prev positions also, till we hit a healthy position
-                                    let mut tail_user_result = sorted_troves_contract.get_last().call().await;
-                                    match tail_user_result {
-                                        Ok(mut tail_user) => {
+            println!("========================== new block check {} ========================== ", block.number.unwrap());
+                                                
+            let trove_manager_contract = trove_manager_contract0.clone();
+            let sorted_troves_contract = sorted_troves_contract0.clone();
+            let chainlink_feed_registry = chainlink_feed_registry0.clone();
+            let bot_wallet = bot_wallet0.clone();
+            let flashbot_reg_wallet = flashbot_reg_wallet0.clone();
+    
+            let task = tokio::spawn(async move {  
+                
+                println!("task spawned");
+                //2. get Eth price from chainlink, scale it up to 18 decimals (chainlink default 8 decimals 
+                let current_eth_price:U256 = get_asset_latest_usd_value_chainlink(chainlink_feed_registry.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address
+                // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
+                println!("got eth price {}", current_eth_price);
+                
+                //3. get the tail addresses from sortedTroves.sol and check health, if found any unhealthy, check prev positions also, till we hit a healthy position
+                let mut tail_user_result = sorted_troves_contract.get_last().call().await;
+                match tail_user_result {
+                    Ok(mut tail_user) => {
+                        let mut unhealthy_position_count = 0;
+                        loop {
+                
+                            //check health
+                            let user_current_icr_result = trove_manager_contract.get_current_icr(tail_user, current_eth_price).call().await;
+                            match user_current_icr_result {
+                                Ok(user_current_icr) => {
 
-                                            let mut unhealthy_position_count = 0;
-                                    
-                                            loop {
-                                    
-                                                //check health
-                                                let user_current_icr_result = trove_manager_contract.get_current_icr(tail_user, current_eth_price).call().await;
-                                                match user_current_icr_result {
-                                                    Ok(user_current_icr) => {
-
-                                                        if user_current_icr < mcr {
-                                                            unhealthy_position_count += 1;
-                                                            println!("found unhealthy position {}", unhealthy_position_count);
-                                                            tail_user_result = sorted_troves_contract.get_prev(tail_user).call().await;
-                                                            match tail_user_result {
-                                                                Ok(new_tail_user) => { tail_user = new_tail_user}
-                                                                Err(e) => {println!("err getting next tail user {:?}", e);}
-                                                            }
-                                                        } else {
-                                                            break;
-                                                        }
-
-                                                    },
-                                                    Err(e) => {println!("err getting user icr {:?}", e)}
-                                                }
-                                            };
-                                
-                                            println!("got {} unhealthy positions", unhealthy_position_count);
-                                            if unhealthy_position_count > 0 {
-                                    
-                                                //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
-                                                liquidate_troves(unhealthy_position_count, &trove_manager_add, bot_wallet.clone(), flashbot_reg_wallet.clone(), &current_eth_price).await;
-                                            }; 
+                                    if user_current_icr < mcr {
+                                        unhealthy_position_count += 1;
+                                        println!("found unhealthy position {}", unhealthy_position_count);
+                                        tail_user_result = sorted_troves_contract.get_prev(tail_user).call().await;
+                                        match tail_user_result {
+                                            Ok(new_tail_user) => { tail_user = new_tail_user}
+                                            Err(e) => {println!("err getting next tail user {:?}", e);}
                                         }
-                                        Err(e) => {println!("err getting tail user {:?}", e)}
-                                    }             
-                                });
-                                
-                                task.await.unwrap();   
-                            },
-        
-                            None => {
-                                println!("didnt get any block");
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        println!("err getting block {:?}", e);
-                    }
-                }     
-            }
-        },
+                                    } else {
+                                        break;
+                                    }
 
-        Err(err) => {
-            println!("err getting block, skipping one, {:?}", err);
-        }
-    }
+                                },
+                                Err(e) => {println!("err getting user icr {:?}", e)}
+                            }
+                        };
+            
+                        println!("got {} unhealthy positions", unhealthy_position_count);
+                        if unhealthy_position_count > 0 {
+                
+                            //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
+                            liquidate_troves(unhealthy_position_count, &trove_manager_add, bot_wallet.clone(), flashbot_reg_wallet.clone(), &current_eth_price).await;
+                        }; 
+                    }
+                    Err(e) => {println!("err getting tail user {:?}", e)}
+                }             
+            });
+            
+            task.await.unwrap();  
+    };
+
+    Ok(())
 }
 
 async fn liquidate_troves(unhealthy_position_count:i32, trove_manager_add:&Address, bot_wallet:Wallet<SigningKey>, flashbot_reg_wallet:Wallet<SigningKey>, current_eth_price:&U256){
