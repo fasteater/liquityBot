@@ -138,7 +138,7 @@ async fn main() -> Result<(), Box<dyn Error>>{
                 }             
             });
             
-            task.await.unwrap();  
+            task.await?;  
     };
 
     Ok(())
