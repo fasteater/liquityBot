@@ -152,7 +152,11 @@ async fn main() -> Result<(), Box<dyn Error>>{
                                         },   
                                     }             
                                 });
-                                task.await?;
+                                let task_result = task.await;
+                                match task_result {
+                                    Ok(()) => {},
+                                    Err(e) => println!{"task err {:?}", e}
+                                }
                             }
                         }
                     }
