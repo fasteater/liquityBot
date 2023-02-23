@@ -82,11 +82,11 @@ async fn main() -> Result<(), Box<dyn Error>>{
 
 
         match timeout(Duration::from_secs(20), stream.next()).await {
-            Ok(_) => {
+            Ok(Some(block)) => {
                 // The future completed within the timeout
                 println!("Async function completed within the timeout.");
 
-                while let Some(block) = stream.next().await {
+                // while let Some(block) = stream.next().await {
                     let provider = provider0.clone();
                     let block_result = provider.get_block(block).await;
         
@@ -167,11 +167,15 @@ async fn main() -> Result<(), Box<dyn Error>>{
                     }
         
                     // Ok(())
-                };
+                // };
             },
-            Err(_) => {
+            Ok(_) => {
+                println!("got empty stream");
+                continue;
+            },
+            Err(e) => {
                 // The future timed out
-                println!("Async function timed out.");
+                println!("Async function timed out: {:?}", e);
                 continue;
             }
         }
