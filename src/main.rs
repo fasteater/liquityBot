@@ -169,7 +169,7 @@ async fn main() -> Result<(), Box<dyn Error>>{
                         // Ok(())
                     // };
                 },
-                Ok(None) => {
+                Ok(_) => {
                     println!("got empty stream");
                     break;
                 },
