@@ -55,142 +55,153 @@ async fn main() -> Result<(), Box<dyn Error>>{
 
     let flashbot_reg_wallet0 = Wallet::decrypt_keystore("./.cargo/flashbot_reg_keystore.186649000Z--ff584ffe16f497a8aa3ef660424e8132905e538c",&env::var("FLASHBOT_REG_ACC_KEYSTORE_PASS").unwrap()).unwrap(); //mm12
     dbg!(&flashbot_reg_wallet0);
-    
+
     loop { //use a loop to handle auto ws re-connection
         println!("new loop");
 
-        let provider = Provider::<Ws>::connect(&env::var("END_POINT").unwrap()).await.unwrap(); //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
-        let client = Arc::new(provider);
-        
-        let trove_manager_add: Address = "0xA39739EF8b0231DbFA0DcdA07d7e29faAbCf4bb2".parse().unwrap();
-        let trove_manager_contract0 = TROVE_MANAGER::new(trove_manager_add, client.clone());
-        
-        //   //dev test
-        //   liquidate_troves(2, &trove_manager_add, bot_wallet.clone(), flashbot_reg_wallet.clone(), &U256::from_dec_str("1200000000000000000000").unwrap()).await;
+        let provider_result = Provider::<Ws>::connect(&env::var("END_POINT").unwrap()).await; //TODO wrap provider in Arc for sharing? e.g. https://github.com/gakonst/ethers-rs/blob/master/examples/transactions/examples/gas_price_usd.rs
+        match provider_result {
+            Err(e) => {
+                println!("err getting ws provider {:?}", e);
+                continue;
+            }
 
-        let sorted_troves_add:Address = "0x8FdD3fbFEb32b28fb73555518f8b361bCeA741A6".parse().unwrap();
-        let sorted_troves_contract0 = SORTED_TROVE::new(sorted_troves_add, client.clone());
+            Ok(provider) => {
+                let provider = provider;
 
-        let chainlink_feed_add: Address = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf".parse().unwrap();
-        let chainlink_feed_registry0 = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client.clone());
+                let client = Arc::new(provider);
         
-        let mcr:U256 = U256::from_dec_str("1100000000000000000")?; 
+                let trove_manager_add: Address = "0xA39739EF8b0231DbFA0DcdA07d7e29faAbCf4bb2".parse().unwrap();
+                let trove_manager_contract0 = TROVE_MANAGER::new(trove_manager_add, client.clone());
+                
+                //   //dev test
+                //   liquidate_troves(2, &trove_manager_add, bot_wallet.clone(), flashbot_reg_wallet.clone(), &U256::from_dec_str("1200000000000000000000").unwrap()).await;
 
-        //1. listen to new blocks
-        let ws_result = Ws::connect(&env::var("END_POINT").unwrap()).await;
-        match ws_result {
-            Ok(ws) => {
-                let ws = ws;
-                let provider0 = Provider::new(ws).interval(Duration::from_millis(1000));
+                let sorted_troves_add:Address = "0x8FdD3fbFEb32b28fb73555518f8b361bCeA741A6".parse().unwrap();
+                let sorted_troves_contract0 = SORTED_TROVE::new(sorted_troves_add, client.clone());
 
-                let mut stream= provider0.watch_blocks().await?;
-        
-                loop {
-                    match timeout(Duration::from_secs(20), stream.next()).await {
-                        Ok(Some(block)) => {
-                            // The future completed within the timeout
-                            println!("Async function completed within the timeout.");
-            
-                            // while let Some(block) = stream.next().await {
-                                let provider = provider0.clone();
-                                let block_result = provider.get_block(block).await;
+                let chainlink_feed_add: Address = "0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf".parse().unwrap();
+                let chainlink_feed_registry0 = CHAINLINK_FEED_REGISTRY::new(chainlink_feed_add, client.clone());
+                
+                let mcr:U256 = U256::from_dec_str("1100000000000000000")?; 
+
+                //1. listen to new blocks
+                let ws_result = Ws::connect(&env::var("END_POINT").unwrap()).await;
+                match ws_result {
+                    Ok(ws) => {
+                        let ws = ws;
+                        let provider0 = Provider::new(ws).interval(Duration::from_millis(1000));
+
+                        let mut stream= provider0.watch_blocks().await?;
+                
+                        loop {
+                            match timeout(Duration::from_secs(20), stream.next()).await {
+                                Ok(Some(block)) => {
+                                    // The future completed within the timeout
+                                    println!("Async function completed within the timeout.");
                     
-                                match block_result {
-                    
-                                    Err(e) => println!("err getting block from provider"),
-                                    Ok(block_option) => {
-                                        match block_option {
-                                            None => println!("got a none block"),
-                                            Some(block) =>{
-                    
-                                                println!("========================== new block check {} ========================== ", block.number.unwrap());                    
-                                                let trove_manager_contract = trove_manager_contract0.clone();
-                                                let sorted_troves_contract = sorted_troves_contract0.clone();
-                                                let chainlink_feed_registry = chainlink_feed_registry0.clone();
-                                                let bot_wallet = bot_wallet0.clone();
-                                                let flashbot_reg_wallet = flashbot_reg_wallet0.clone();
-                                        
-                                                let task = tokio::spawn(async move {  
-                                                    println!("task spawned");
-                                                    //2. get Eth price from chainlink, scale it up to 18 decimals (chainlink default 8 decimals 
-                                                    // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
-                                                    let current_eth_price_result = get_asset_latest_usd_value_chainlink(chainlink_feed_registry.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address 
-                                                    match current_eth_price_result { 
-                                                        Err(e) =>  println!("err getting eth price, {:?}", e),
-                                                        Ok(price) => {
-                                                            let current_eth_price = price;
-                                                            println!("got eth price {}", current_eth_price);
-                                                            //3. get the tail addresses from sortedTroves.sol and check health, if found any unhealthy, check prev positions also, till we hit a healthy position
-                                                            let mut tail_user_result = sorted_troves_contract.get_last().call().await;
-                                                            match tail_user_result {
-                                                                Ok(mut tail_user) => {
-                                                                    let mut unhealthy_position_count = 0;
-                                                                    loop {
-                                                            
-                                                                        //check health
-                                                                        let user_current_icr_result = trove_manager_contract.get_current_icr(tail_user, current_eth_price).call().await;
-                                                                        match user_current_icr_result {
-                                                                            Ok(user_current_icr) => {
-                    
-                                                                                if user_current_icr < mcr {
-                                                                                    unhealthy_position_count += 1;
-                                                                                    println!("found unhealthy position {}", unhealthy_position_count);
-                                                                                    tail_user_result = sorted_troves_contract.get_prev(tail_user).call().await;
-                                                                                    match tail_user_result {
-                                                                                        Ok(new_tail_user) => { tail_user = new_tail_user}
-                                                                                        Err(e) => {println!("err getting next tail user {:?}", e);}
-                                                                                    }
-                                                                                } else {
-                                                                                    break;
+                                    // while let Some(block) = stream.next().await {
+                                        let provider = provider0.clone();
+                                        let block_result = provider.get_block(block).await;
+                            
+                                        match block_result {
+                            
+                                            Err(e) => println!("err getting block from provider"),
+                                            Ok(block_option) => {
+                                                match block_option {
+                                                    None => println!("got a none block"),
+                                                    Some(block) =>{
+                            
+                                                        println!("========================== new block check {} ========================== ", block.number.unwrap());                    
+                                                        let trove_manager_contract = trove_manager_contract0.clone();
+                                                        let sorted_troves_contract = sorted_troves_contract0.clone();
+                                                        let chainlink_feed_registry = chainlink_feed_registry0.clone();
+                                                        let bot_wallet = bot_wallet0.clone();
+                                                        let flashbot_reg_wallet = flashbot_reg_wallet0.clone();
+                                                
+                                                        let task = tokio::spawn(async move {  
+                                                            println!("task spawned");
+                                                            //2. get Eth price from chainlink, scale it up to 18 decimals (chainlink default 8 decimals 
+                                                            // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
+                                                            let current_eth_price_result = get_asset_latest_usd_value_chainlink(chainlink_feed_registry.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address 
+                                                            match current_eth_price_result { 
+                                                                Err(e) =>  println!("err getting eth price, {:?}", e),
+                                                                Ok(price) => {
+                                                                    let current_eth_price = price;
+                                                                    println!("got eth price {}", current_eth_price);
+                                                                    //3. get the tail addresses from sortedTroves.sol and check health, if found any unhealthy, check prev positions also, till we hit a healthy position
+                                                                    let mut tail_user_result = sorted_troves_contract.get_last().call().await;
+                                                                    match tail_user_result {
+                                                                        Ok(mut tail_user) => {
+                                                                            let mut unhealthy_position_count = 0;
+                                                                            loop {
+                                                                    
+                                                                                //check health
+                                                                                let user_current_icr_result = trove_manager_contract.get_current_icr(tail_user, current_eth_price).call().await;
+                                                                                match user_current_icr_result {
+                                                                                    Ok(user_current_icr) => {
+                            
+                                                                                        if user_current_icr < mcr {
+                                                                                            unhealthy_position_count += 1;
+                                                                                            println!("found unhealthy position {}", unhealthy_position_count);
+                                                                                            tail_user_result = sorted_troves_contract.get_prev(tail_user).call().await;
+                                                                                            match tail_user_result {
+                                                                                                Ok(new_tail_user) => { tail_user = new_tail_user}
+                                                                                                Err(e) => {println!("err getting next tail user {:?}", e);}
+                                                                                            }
+                                                                                        } else {
+                                                                                            break;
+                                                                                        }
+                            
+                                                                                    },
+                                                                                    Err(e) => {println!("err getting user icr {:?}", e)}
                                                                                 }
-                    
-                                                                            },
-                                                                            Err(e) => {println!("err getting user icr {:?}", e)}
+                                                                            };
+                                                                
+                                                                            println!("got {} unhealthy positions", unhealthy_position_count);
+                                                                            if unhealthy_position_count > 0 {
+                                                                    
+                                                                                //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
+                                                                                liquidate_troves(unhealthy_position_count, &trove_manager_add, bot_wallet.clone(), flashbot_reg_wallet.clone(), &current_eth_price).await;
+                                                                            }; 
                                                                         }
-                                                                    };
-                                                        
-                                                                    println!("got {} unhealthy positions", unhealthy_position_count);
-                                                                    if unhealthy_position_count > 0 {
-                                                            
-                                                                        //4. liquidate all n unhealthy positions with manager.liquidateTroves(uint _n), via flashbot tx, offering 200 USD in gas fees, keep 0.5% eth collateral to myself
-                                                                        liquidate_troves(unhealthy_position_count, &trove_manager_add, bot_wallet.clone(), flashbot_reg_wallet.clone(), &current_eth_price).await;
-                                                                    }; 
-                                                                }
-                                                                Err(e) => {println!("err getting tail user {:?}", e)}
-                                                            } 
-                                                        },   
-                                                    }             
-                                                });
-                                                let task_result = task.await;
-                                                match task_result {
-                                                    Ok(()) => {},
-                                                    Err(e) => println!{"task err {:?}", e}
+                                                                        Err(e) => {println!("err getting tail user {:?}", e)}
+                                                                    } 
+                                                                },   
+                                                            }             
+                                                        });
+                                                        let task_result = task.await;
+                                                        match task_result {
+                                                            Ok(()) => {},
+                                                            Err(e) => println!{"task err {:?}", e}
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                }
-                                // Ok(())
-                            // };
-                        },
-                        Ok(None) => {
-                            println!("got empty stream");
-                            break;
-                        },
-                        Err(e) => {
-                            // The future timed out
-                            println!("Async function timed out: {:?}", e);
-                            break;
-                        },
-        
+                                        // Ok(())
+                                    // };
+                                },
+                                Ok(None) => {
+                                    println!("got empty stream");
+                                    break;
+                                },
+                                Err(e) => {
+                                    // The future timed out
+                                    println!("Async function timed out: {:?}", e);
+                                    break;
+                                },
+                
+                            }
+                        }
                     }
-                }
-            }
 
-            Err(e) => {
-                println!("err getting ws {:?}", e);
+                    Err(e) => {
+                        println!("err getting ws {:?}", e);
+                    }
+                };
             }
-        };
+        }
     }
 }
 
