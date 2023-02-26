@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn Error>>{
                                                     // let current_eth_price:U256 = U256::from_dec_str("1000000000000000000000").unwrap(); //Dev only
                                                     let current_eth_price_result = get_asset_latest_usd_value_chainlink(chainlink_feed_registry.clone(), "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".parse().unwrap()).await; //0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE is eth address 
                                                     match current_eth_price_result { 
-                                                        Err(e) =>  println!("err getting eth price"),
+                                                        Err(e) =>  println!("err getting eth price, {:?}", e),
                                                         Ok(price) => {
                                                             let current_eth_price = price;
                                                             println!("got eth price {}", current_eth_price);
