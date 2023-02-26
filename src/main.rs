@@ -154,7 +154,10 @@ async fn main() -> Result<(), Box<dyn Error>>{
                                                                                         }
                             
                                                                                     },
-                                                                                    Err(e) => {println!("err getting user icr {:?}", e)}
+                                                                                    Err(e) => {
+                                                                                        println!("err getting user icr {:?}", e);
+                                                                                        break;
+                                                                                    }
                                                                                 }
                                                                             };
                                                                 
